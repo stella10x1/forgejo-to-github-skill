@@ -1,0 +1,271 @@
+{
+  "labels": [
+    {
+      "name": "bug",
+      "color": "ee0701",
+      "description": "Something is not working"
+    },
+    {
+      "name": "contribution welcome",
+      "color": "128a0c",
+      "description": "Contributions are very welcome, get started here"
+    },
+    {
+      "name": "documentation",
+      "color": "d4c5f9",
+      "description": ""
+    },
+    {
+      "name": "duplicate",
+      "color": "cccccc",
+      "description": "This issue or pull request already exists"
+    },
+    {
+      "name": "enhancement",
+      "color": "84b6eb",
+      "description": "New feature"
+    },
+    {
+      "name": "good first issue",
+      "color": "53e917",
+      "description": "Interested in contributing? Get started here."
+    },
+    {
+      "name": "help wanted",
+      "color": "eb6420",
+      "description": "Need some help"
+    },
+    {
+      "name": "invalid",
+      "color": "e6e6e6",
+      "description": "Something is wrong"
+    },
+    {
+      "name": "question",
+      "color": "cc317c",
+      "description": "More information is needed"
+    },
+    {
+      "name": "upstream",
+      "color": "0052cc",
+      "description": "Related to an upstream repository, already reported there"
+    }
+  ],
+  "issues": [
+    {
+      "number": 1,
+      "kind": "issue",
+      "title": "Add something for interacting with SQLite Databases",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#1](https://codeberg.org/stella10x1/dotfiles-nvim/issues/1), opened on 2024-06-09.\n\nIt would be nice to write and execute SQL Queries in Neovim with autocompletion for a specified database.\r\n\r\nNeed to research if that is possible.",
+      "labels": [
+        "enhancement"
+      ],
+      "comments": [
+        "> Comment migrated from [Codeberg](https://codeberg.org/stella10x1/dotfiles-nvim/issues/1#issuecomment-2039598), posted on 2024-06-22.\n\nThere is a plugin [sqlua.nvim](https://github.com/Xemptuous/sqlua.nvim), which converts Neovim into a IDE-like interface for SQL databases. But currently there is no support for SQLite.\r\n\r\nPlugins written in vimscript [vim-dadbod](https://github.com/tpope/vim-dadbod) and [vim-dadbod-ui](https://github.com/kristijanhusak/vim-dadbod-ui) are available. [sqlua.nvim](https://github.com/Xemptuous/sqlua.nvim) is inspired by these plugins, but integrates better in the Neovim plugin ecosystem."
+      ],
+      "state": "open",
+      "reason": null,
+      "notes": []
+    },
+    {
+      "number": 2,
+      "kind": "issue",
+      "title": "Interaction with Jupyter notebooks",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#2](https://codeberg.org/stella10x1/dotfiles-nvim/issues/2), opened on 2024-06-13.\n\nI need something to interact with Jupyter notebooks. I started my search at [awesome-neovim](https://github.com/rockerBOO/awesome-neovim) and found following active plugins:\n\n- <https://github.com/GCBallesteros/jupytext.nvim>\n- <https://github.com/SUSTech-data/neopyter>\n- <https://github.com/benlubas/molten-nvim>\n- <https://github.com/kiyoon/jupynium.nvim>\n\nNeed to find out, which is best suited for my use case.",
+      "labels": [],
+      "comments": [
+        "> Comment migrated from [Codeberg](https://codeberg.org/stella10x1/dotfiles-nvim/issues/2#issuecomment-2016083), posted on 2024-06-13.\n\nFirst implemention of jupynium.nvim in Branch [jupynium.nvim](https://github.com/stella10x1/dotfiles-nvim/tree/jupynium.nvim).\r\n\r\nThis needs some python dependencies. To not mess with the system / user environment the build hook in the lazy configuration creates a virtual environment unter `$XDG_DATA_HOME/nvim/jupynium.nvim`."
+      ],
+      "state": "open",
+      "reason": null,
+      "notes": []
+    },
+    {
+      "number": 3,
+      "kind": "issue",
+      "title": "mason ensure_installed on hosts, which are not Arch Linux",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#3](https://codeberg.org/stella10x1/dotfiles-nvim/issues/3), opened on 2024-06-13.\n\nI use this config on multiple Linux distributions, but mostly on Arch Linux. The advantage of Arch is, that many LSP, linters and formatters  are available in the upstream repositories. However, on other distributions this isn't the case. Therefore I would like to use the ensure_installed option for Mason, but only on distributions, which are not Arch Linux.\r\n\r\n```lua\r\n  {\r\n  \t\"williamboman/mason.nvim\",\r\n  \topts = {\r\n  \t\tensure_installed = {\r\n  \t\t\t\"lua-language-server\", \"stylua\",\r\n  \t\t\t\"html-lsp\", \"css-lsp\" , \"prettier\"\r\n  \t\t},\r\n  \t},\r\n  },\r\n```",
+      "labels": [],
+      "comments": [
+        "> Comment migrated from [Codeberg](https://codeberg.org/stella10x1/dotfiles-nvim/issues/3#issuecomment-2118019), posted on 2024-07-28.\n\nOne challange in Lua is how to figure out, which distribution is used. In Neovim there is a Lua function to determine at least if it is Windows, Linux or MacOS with [libUV](https://neovim.io/doc/user/luvref.html) (`:help uv.os_uname`).\r\n\r\nExample:\r\n\r\n```lua\r\nprint(\"vim.uv.os_uname().sysname\")\r\n-- returns \"Linux\"\r\n```\r\n\r\nMy idea is to parse `/etc/os-release` afterwards to get the distribution. `/etc/os-release` should be present on every Linux distribution containing systemd, which is the case for the most. When the `/etc/os-release` file is not found, it should always fallback to load the `ensure_installed` table.\r\n\r\nThe `uv.os_uname()` table returns also another interesting value `release`, which is the kernel version name string (as with `uname -r`. Most distributions encode their ID in that, but I think this is not stable enough to rely on it.\r\n\r\n**References**:\r\n\r\n- <https://neovim.io/doc/user/luvref.html>\r\n- <https://www.freedesktop.org/software/systemd/man/latest/os-release.html>\r\n- <https://0pointer.de/blog/projects/os-release.html>"
+      ],
+      "state": "open",
+      "reason": null,
+      "notes": []
+    },
+    {
+      "number": 4,
+      "kind": "issue",
+      "title": "git integration",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#4](https://codeberg.org/stella10x1/dotfiles-nvim/issues/4), opened on 2024-06-13.\n\nA wider git integration is considered. Currently this configuration has [gitsigns.nvim](https://github.com/lewis6991/gitsigns.nvim) inherited from [NvChad](https://github.com/NvChad/NvChad). But this does not integrate adding and editing commits or other interacting with the repository.\n\nWhile the `git` command line is great, there are some pitfalls. Especially when adding only a subset of changes in a file it can get really tedious.\n\nThe [awesome-neovim](https://github.com/rockerBOO/awesome-neovim) document lists many [git plugins](https://github.com/rockerBOO/awesome-neovim#git). \n\nSome interesting looking plugins:\n\n- [chrisgrieser/nvim-tinygit](https://github.com/chrisgrieser/nvim-tinygit) looks good, but does not support adding a commit body.\n- [NeogitOrg/neogit](https://github.com/NeogitOrg/neogit) is inspired by Magit. I've read somewhere that Magit is good. Also this plugins seems to be actively maintained by a group of maintainers. But it seem to have many shortcuts, which may be a tedious task to learn. \n- [kdheepak/lazygit.nvim](https://github.com/kdheepak/lazygit.nvim) integrates calling [lazygit](https://github.com/jesseduffield/lazygit) into Neovim. An advantage would be that lazygit is also available outside of Neovim. The drawback is that it seems to be a solution set on top of Neovim and not integrate it in it.\n- [tpope/vim-fugitive](https://github.com/tpope/vim-fugitive) is a well known plugin for legacy vim. Obviously it is not written in lua and could have a negative impact on the start-up time. But through its age it is should have a complete feature set. An advantage is that it mostly maps the git CLI into the Neovim CLI and therefore does not require much more learning.\n\nNot a full integration, but may also be useful:\n\n- [aaronhallaert/advanced-git-search.nvim](https://github.com/aaronhallaert/advanced-git-search.nvim) adds a Telescope picker to query git log content. But it has a hard requirement for vim-fugitive. It has capabilities to diff the commit with other content.\n- [isak102/telescope-git-file-history.nvim](https://github.com/isak102/telescope-git-file-history.nvim) also adds a Telescope picker to search the git log database. The cool feature is that it allows to open at a specific commit, without using git checkout. Also have a requirement on vim-fugitive.",
+      "labels": [
+        "enhancement"
+      ],
+      "comments": [
+        "> Comment migrated from [Codeberg](https://codeberg.org/stella10x1/dotfiles-nvim/issues/4#issuecomment-2159693), posted on 2024-08-08.\n\nI made two changed to make working with git in Neovim better:\r\n\r\n- b14ab1686dddbf9241d48cbaa85e26707da7c4e1 adds mapping for utilizing the full potential of [gitsigns.nvim](https://github.com/lewis6991/gitsigns.nvim). Especially this helps to add single hunks to the index instead of full files, so `git add -p` can be avoided. \r\n- 23ea1b9343879e989073bf57591ed80997f74418 remaps the builtin git pickers for telescope to mappings, which make more sense for me. The interactive history with preview is useful.\r\n\r\nA tool to make commits from inside Neovim is still missing. I think it will be [neogit](https://github.com/NeogitOrg/neogit) or [vim-fugitive](https://github.com/tpope/vim-fugitive). I added configuration for both in separate branches to test these plugins in practice. ",
+        "> Comment migrated from [Codeberg](https://codeberg.org/stella10x1/dotfiles-nvim/issues/4#issuecomment-2166000), posted on 2024-08-11.\n\nI tested both tools. [Neogit](https://github.com/NeogitOrg/neogit) felt a bit incomplete and therefore I switched soon to [vim-fugitive](https://github.com/tpope/vim-fugitive). While being a bit critic in the beginning, after watching an introduction on YouTube I got comfortable with it. Especially rebasing with it is so much easier and efficient. Also merging with the 3-way diff (`:Gvdiffsplit!`) is very useful.\n\nTherefore I will stick with it for now. While being good integrated in vim itself, fugitive does not feel good integrated with the Neovim plugin ecosystem. Maybe it can be enhanced by some configuration changes.\n\nI used following sources to learn vim-fugitive:\n\n- [YouTube / DevOps Toolbox / **The ULTIMATE Git workflow using Neovim's Fugitive, Telescope & Git-Signs!**](https://www.youtube.com/watch?v=IyBAuDPzdFY), _from 2023-01-13, length 7:21 min_.\n- [YouTube / DevOps Toolbox / **Resolve Git Merge Conflicts with Neovim and Fugitive!**](https://www.youtube.com/watch?v=vpwJ7fqD1CE), _from 2023-01-06, length 7:13 min_.\n\nThe same Channel have another more current video, which I may look in the future:\n\n- [YouTube / DevOps Toolbox / **The Holy Grail of Neovim Git Integrations**](https://www.youtube.com/watch?v=vpwJ7fqD1CE), _from 2024-03-15, length 13:27 min_.\n\n[Neogit](https://github.com/NeogitOrg/neogit) still seems like a good maintained project and maybe I will look into it again some day."
+      ],
+      "state": "closed",
+      "reason": "completed",
+      "notes": []
+    },
+    {
+      "number": 5,
+      "kind": "issue",
+      "title": "Language per file / folder",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#5](https://codeberg.org/stella10x1/dotfiles-nvim/issues/5), opened on 2024-06-13.\n\nI use Neovim for writing and reading markdown files in different languages. Therefore I need a mechanism to change the option `spelllang` per folder / file.\r\n\r\nWith the option exrc it is possible to read configurations from a `.nvim.lua`, `.nvimrc` or `.exrc` file (see `:h exrc`). This could be a solution for folders, but for security reasons I don't want this. \r\n\r\nSpecific files can be configures with a modeline (see `:h modeline`). But it is not so nice to have vim specific lines in a file.\r\n\r\nFor Markdown files it would be cool to detect the language from YAML frontmatter:\r\n\r\n```yaml\r\n---\r\ntitle: some cool title\"\r\ndate: 2024-06-13\r\nlang: en    # or en_US, etc..\r\n---\r\n```\r\n\r\nOr maybe in a long format:\r\n\r\n```yaml\r\n---\r\ntitle: some cool title\"\r\ndate: 2024-06-13\r\nlanguage: english \r\n---\r\n```\r\n\r\nBut I couldn't find a plugin which does this.\r\n\r\nAnother mechanism would be to apply the language by folder. But hardcoding this in the configuration is not preferable. A better solution would be to add that into a file like `.local/state/nvim/langfolders.json`, which is then read if `spell = true`.",
+      "labels": [
+        "enhancement"
+      ],
+      "comments": [
+        "> Comment migrated from [Codeberg](https://codeberg.org/stella10x1/dotfiles-nvim/issues/5#issuecomment-2077296), posted on 2024-07-05.\n\nAs a quick workaround to set the language I wrote shortcuts for fast switching between languages. See c287667e3d42e6f1488bccdb2384d2cfac0d2104. An automatic solution for changing `spelllang` on file / folder basis is still preferable.",
+        "> Comment migrated from [Codeberg](https://codeberg.org/stella10x1/dotfiles-nvim/issues/5#issuecomment-2446496), posted on 2024-11-14.\n\nAs `HTML` supports `lang` (with cc codes) as attribute for their elements, it is the right choice for a language specifying field in the YAML frontmatter.\r\n\r\n- <https://www.w3schools.com/tags/att_lang.asp>",
+        "> Comment migrated from [Codeberg](https://codeberg.org/stella10x1/dotfiles-nvim/issues/5#issuecomment-2447248), posted on 2024-11-14.\n\n806b78d3743ce974bcb4234bdd2e321af7e815e9 implements setting the spelllang based on a value in a field `lang` from YAML frontmatter. It is not the best solution, but it works."
+      ],
+      "state": "closed",
+      "reason": "completed",
+      "notes": []
+    },
+    {
+      "number": 6,
+      "kind": "issue",
+      "title": "snippts python: add argparse argument snippets",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#6](https://codeberg.org/stella10x1/dotfiles-nvim/issues/6), opened on 2024-06-13.",
+      "labels": [],
+      "comments": [],
+      "state": "open",
+      "reason": null,
+      "notes": []
+    },
+    {
+      "number": 7,
+      "kind": "issue",
+      "title": "Configure Debug Adapter Protocol (DAP) Plugins",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#7](https://codeberg.org/stella10x1/dotfiles-nvim/issues/7), opened on 2024-06-13.",
+      "labels": [
+        "enhancement"
+      ],
+      "comments": [],
+      "state": "open",
+      "reason": null,
+      "notes": []
+    },
+    {
+      "number": 8,
+      "kind": "issue",
+      "title": "Open Man Pages With `K` In Normal Mode From Text",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#8](https://codeberg.org/stella10x1/dotfiles-nvim/issues/8), opened on 2024-06-22.\n\nSometimes there are references to man pages in markdown files. It would be cool to open these with the `K` key (or any other shortcut).\n\n**TL;DR**: A custom function / parser need to be written, which detects a man page reference.\n\n### Possible Implementation\n\nman pages are written mostly in the syntax `name_of_man_page(section)`, e. g. **namespaces(7)**. \n\nFollowing syntax need to be matched:\n\n- one word without spaces.\n- followed by a open brace.\n- followed by a number between 1 and 8, both inclusive.\n- followed by a closing brace.\n\nWhen this is matched try to find an appropriate man page. An idea would be to call the Telescope man_pages built in picker with a default text:\n\n```lua\nrequire(\"telescope.builtin\").man_pages { default_text = \"namespaces\" }\n-- or call with section to get an exacter match.\nrequire(\"telescope.builtin\").man_pages { default_text = \"namespaces\", sections = { \"1\" } }\n``` \n\nAnother idea could be to call the `Man` command with the word under the cursor.\n\n```lua\n-- call with specifying section\nvim.cmd(\"Man \" .. parsed_section .. \" \" .. parsed_word)\n-- call without specifying section, may be as fallback if the first call fails\nvim.cmd(\"Man \" .. parsed_word)\n-- first calling with the section is important to prevent opening the wrong man page, as there are\n-- some man pages with the same name in different sections, e. g. printf(1), printf(1p), printf(3), ...\n```\n\nMaybe both solutions can be implemented. E. g. when no man page is found with the `Man` command the Telescope picker could be opened.\n\n\n### More Thoughts\n\nIt could be a solution to just open arbitrary text with the man page or the picker and bind this to different keys. In regards of this using the `K` key wouldn't be appropriate. But both could be implemented. When pressing the `K` key a function parses the string as described above and tries to open a man page. Using arbitrary words and open the telescope picker can be an additional function.",
+      "labels": [
+        "enhancement"
+      ],
+      "comments": [],
+      "state": "open",
+      "reason": null,
+      "notes": []
+    },
+    {
+      "number": 9,
+      "kind": "issue",
+      "title": "Do Not Open `netrw` When Opening Folders",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#9](https://codeberg.org/stella10x1/dotfiles-nvim/issues/9), opened on 2024-06-22.\n\nWhen opening a folder with the `nvim` command instead of a file, the builtin plugin `netrw` opens, which I do not want. \n\nI would like to have Neovim set the working directory to this path and shows an empty window. Maybe open NvimTree instead as a sidebar would be ok. But I'm fine by just open files with Telescope.\n\nI can't disable netrw, because it is necessary to download spell files.",
+      "labels": [
+        "bug"
+      ],
+      "comments": [],
+      "state": "open",
+      "reason": null,
+      "notes": []
+    },
+    {
+      "number": 10,
+      "kind": "issue",
+      "title": "Disable `netrwPlugin` When Upstream Neovim Implements a Solution",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#10](https://codeberg.org/stella10x1/dotfiles-nvim/issues/10), opened on 2024-06-22.\n\nIt is not possible to download spellfiles without the internal plugin `netrwPlugin`. Unfortunately, the netrwPlugin opens itself when call Neovim on a folder (#9). \r\n\r\nThere is an issue on upstream Neovim regarding this: [github.com/neovim/neovim#7189](https://github.com/neovim/neovim/issues/7189) and a pull request to implement a [download() or fetch() without netrw](https://github.com/neovim/neovim/issues/23232) function. Maybe that problem resolves over time.\r\n\r\nWhen upstream Neovim implements such a download feature `netrwPlugin` should also be disabled.\r\n\r\nOnly netrw is needed to download the spellfiles, therefore 56e49ec342879b848dd05172d5ad9003c978221d disables `netrw`, `netrwSettings` and `netrwFileHandlers`.",
+      "labels": [
+        "upstream"
+      ],
+      "comments": [
+        "> Comment migrated from [Codeberg](https://codeberg.org/stella10x1/dotfiles-nvim/issues/10#issuecomment-2039589), posted on 2024-06-22.\n\nThere is a plugin [spellfile.nvim](https://github.com/cuducos/spellfile.nvim), which can download spell files while `netrwPlugin` is disabled. But I think it is not a clean solution to disable an internal feature to install a plugin, which does the same."
+      ],
+      "state": "open",
+      "reason": null,
+      "notes": []
+    },
+    {
+      "number": 11,
+      "kind": "issue",
+      "title": "Document Dependencies",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#11](https://codeberg.org/stella10x1/dotfiles-nvim/issues/11), opened on 2024-06-22.\n\nThe needed dependencies (e. g. `ripgrep` for Telescope) should be documented.\r\n\r\nA list of package names for the used language servers, linters and fixers should also be included. ",
+      "labels": [
+        "documentation"
+      ],
+      "comments": [],
+      "state": "open",
+      "reason": null,
+      "notes": []
+    },
+    {
+      "number": 12,
+      "kind": "issue",
+      "title": "ZK: Live Grep Over Note Directory",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#12](https://codeberg.org/stella10x1/dotfiles-nvim/issues/12), opened on 2024-06-29.\n\nIt would be nice to grep over the full `$ZK_NOTEBOOK_DIRECTORY`.\r\n\r\n7aab90ca96 has A quick and dirty solution to grep over the whole ZK_NOTEBOOK_DIR.\r\n\r\nThis implementation has the drawback that it does not reflect the note\r\ntitle in the menu. Instead it shows the file path, which is not very\r\nmeaningful.\r\n\r\nThere is a discussion and a PR on [zk-org/zk-nvim](https://github.com/zk-org/zk-nvim) about this topic, so maybe I just need to wait.\r\n\r\n- Discussion: [feature: ZkGrep / grep through note bodies #127 ](https://github.com/zk-org/zk-nvim/discussions/127)\r\n- PR: [Zk Grep #171](https://github.com/zk-org/zk-nvim/pull/171)",
+      "labels": [
+        "enhancement"
+      ],
+      "comments": [],
+      "state": "open",
+      "reason": null,
+      "notes": []
+    },
+    {
+      "number": 13,
+      "kind": "issue",
+      "title": "Tree-sitter breaks YAML indention",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#13](https://codeberg.org/stella10x1/dotfiles-nvim/issues/13), opened on 2024-09-20.\n\nWith the YAML Tree-Sitter parser the really good indention from default Neovim breaks. The only workaround is to disable the indention feature of the Tree-sitter parser. \r\n\r\n```lua\r\nindent = {\r\n  disable = { 'yaml' }\r\n}\r\n```\r\n\r\nThis seems to be a known problem, see the references.\r\n\r\n### References\r\n\r\n- <https://stackoverflow.com/a/73425024>\r\n- <https://github.com/nvim-treesitter/nvim-treesitter/issues/1377>\r\n- <https://github.com/nvim-treesitter/nvim-treesitter/issues/5653>",
+      "labels": [
+        "upstream"
+      ],
+      "comments": [],
+      "state": "open",
+      "reason": null,
+      "notes": []
+    },
+    {
+      "number": 14,
+      "kind": "pull",
+      "title": "Ansible Argument Specs Snippets and LuaSnip ChoiceNode Hint",
+      "body": "> Migrated from Codeberg pull request [stella10x1/dotfiles-nvim#14](https://codeberg.org/stella10x1/dotfiles-nvim/pulls/14) into `main`, opened on 2024-10-14, merged on 2024-10-14.\n\nThis PR adds two Snippets for Ansible:\r\n\r\n1. Initialization of an argument_specs file in Ansible.\r\n2. An option snippet to write argument specs option definition.\r\n\r\nAdditionally, LuaSnip got its own configuration files, respecting the scheme for other plugin.\r\n\r\nWhen in ChoiceNodes a dot at the end of the line is displayed as virtual text.",
+      "labels": [],
+      "comments": [],
+      "state": "closed",
+      "reason": "completed",
+      "notes": []
+    },
+    {
+      "number": 15,
+      "kind": "issue",
+      "title": "Telescope Git Commits with commit messages",
+      "body": "> Migrated from Codeberg issue [stella10x1/dotfiles-nvim#15](https://codeberg.org/stella10x1/dotfiles-nvim/issues/15), opened on 2024-11-21.\n\nThe builtin Telescope picker `git_commits` is nice, but the preview does only contain a diff to the parent commit. It would be nice to also show the commit message (like in `tig`).",
+      "labels": [
+        "enhancement"
+      ],
+      "comments": [
+        "> Comment migrated from [Codeberg](https://codeberg.org/stella10x1/dotfiles-nvim/issues/15#issuecomment-5047857), posted on 2025-06-08.\n\nThis is not needed anymore, because the desired functionality is now provided by Neogit (#16)."
+      ],
+      "state": "closed",
+      "reason": "completed",
+      "notes": []
+    },
+    {
+      "number": 16,
+      "kind": "pull",
+      "title": "Use Neogit + Diffview",
+      "body": "> Migrated from Codeberg pull request [stella10x1/dotfiles-nvim#16](https://codeberg.org/stella10x1/dotfiles-nvim/pulls/16) into `main`, opened on 2025-06-08, merged on 2025-06-08.\n\nThis PR replaces the vim-fugitive with Neogit + Diffview. See #4 for an elaboration on git integration in Neovim.",
+      "labels": [],
+      "comments": [],
+      "state": "closed",
+      "reason": "completed",
+      "notes": []
+    }
+  ]
+}
