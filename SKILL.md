@@ -110,10 +110,21 @@ so and does nothing.
 
 ```sh
 git clone --mirror <forgejo-clone-url> "$W/repo.git"
+git -C "$W/repo.git" remote remove origin
 DEFAULT=<default_branch from inspect>
 git -C "$W/repo.git" worktree add -b moved-to-github "$W/work" "$DEFAULT"
 python3 -I "$S" links <url> --github OWNER/NAME [--old-owner NAME ...] --dir "$W/work"
 ```
+
+Remove `origin` right after cloning. A mirror clone fetches with
+`+refs/*:refs/*`, so every later push to the forge URL also moves the
+local branch of the same name, as if it were a remote-tracking ref. The
+Phase 4 push of the notice commit to `moved-to-github` then resets the
+worktree branch to the notice commit while the files stay at the removal
+commit, and the next commit silently contains the removal (this happened
+on lingfra/ansible-collection-lingfra-shell). Deleting `moved-to-github`
+on the forge in Phase 5 would delete the checked-out branch. All pushes
+name the URL explicitly, so nothing needs `origin`.
 
 `links` finds links to the repository in all tracked files and shows how
 they would point at GitHub. That includes clone URLs, `.git` and SSH forms,
