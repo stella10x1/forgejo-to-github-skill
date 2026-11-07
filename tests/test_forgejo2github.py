@@ -6,8 +6,11 @@ The live tests only read from Codeberg. Their reference is the archived
 codeberg.org/stella10x1/dotfiles-nvim, the first repository migrated with this
 script (2026-11-07, Forgejo 17.0.0-93-4d598f4+gitea-1.22.0). Its plan was
 checked against the issues that migration created on GitHub and is stored in
-fixtures/. If Codeberg runs a different Forgejo version and these tests still
-pass, the script works as it did on the tested version.
+fixtures/. The milestone, release and link checks use the archived
+codeberg.org/lingfra/ansible-collection-lingfra-podman (migrated the same
+day), which has a milestone and a release. If Codeberg runs a different
+Forgejo version and these tests still pass, the script works as it did on the
+tested version.
 
 Set FORGEJO2GITHUB_OFFLINE=1 to run only the offline tests.
 """
@@ -26,6 +29,8 @@ spec.loader.exec_module(f2g)
 REFERENCE = "https://codeberg.org/stella10x1/dotfiles-nvim"
 REFERENCE_GITHUB = "stella10x1/dotfiles-nvim"
 REFERENCE_OLD_OWNERS = ["lingling"]
+EXTRAS = "https://codeberg.org/lingfra/ansible-collection-lingfra-podman"
+EXTRAS_GITHUB = "lingfra/ansible-collection-lingfra-podman"
 OFFLINE = os.environ.get("FORGEJO2GITHUB_OFFLINE") == "1"
 
 
@@ -57,6 +62,56 @@ class Offline(unittest.TestCase):
         }
         for before, after in cases.items():
             self.assertEqual(f2g.rewrite_links(before, src, "bob/proj", ["old"]), after, before)
+
+    def test_rewrite_file_links(self):
+        src = f2g.Source("https://codeberg.org/alice/proj")
+        cases = {
+            "https://codeberg.org/alice/proj": "https://github.com/bob/proj",
+            "see https://codeberg.org/alice/proj.": "see https://github.com/bob/proj.",
+            "url = https://codeberg.org/alice/proj.git": "url = https://github.com/bob/proj.git",
+            "url = git@codeberg.org:alice/proj.git": "url = git@github.com:bob/proj.git",
+            "ssh://git@codeberg.org/alice/proj.git": "ssh://git@github.com/bob/proj.git",
+            "(https://codeberg.org/alice/proj/)": "(https://github.com/bob/proj/)",
+            "https://codeberg.org/alice/proj/issues": "https://github.com/bob/proj/issues",
+            "https://codeberg.org/alice/proj/issues/3": "https://github.com/bob/proj/issues/3",
+            "https://codeberg.org/alice/proj/pulls/4": "https://github.com/bob/proj/issues/4",
+            "https://codeberg.org/alice/proj/compare/v1..HEAD": "https://github.com/bob/proj/compare/v1..HEAD",
+            "https://codeberg.org/alice/proj/releases/tag/v1": "https://github.com/bob/proj/releases/tag/v1",
+            "https://codeberg.org/alice/proj/src/branch/main/a.md#x": "https://github.com/bob/proj/tree/main/a.md#x",
+            "https://codeberg.org/alice/proj/raw/branch/main/a.md": "https://github.com/bob/proj/raw/main/a.md",
+            "https://codeberg.org/old/proj/issues/1": "https://github.com/bob/proj/issues/1",
+            "https://codeberg.org/old/other": "https://codeberg.org/alice/other",
+            # Paths without a GitHub counterpart, other repositories and relative links stay.
+            "https://codeberg.org/alice/proj/wiki/Home": "https://codeberg.org/alice/proj/wiki/Home",
+            "https://codeberg.org/alice/proj-two": "https://codeberg.org/alice/proj-two",
+            "https://codeberg.org/alice/proj.lua": "https://codeberg.org/alice/proj.lua",
+            "git@codeberg.org:alice/other.git": "git@codeberg.org:alice/other.git",
+            "[a](/docs/a.md)": "[a](/docs/a.md)",
+        }
+        for before, after in cases.items():
+            self.assertEqual(f2g.rewrite_file_links(before, src, "bob/proj", ["old"]), after, before)
+
+    def test_plan_file_links(self):
+        src = f2g.Source("https://codeberg.org/alice/proj")
+        files = {
+            "README.md": "clone https://codeberg.org/alice/proj.git\nsee https://codeberg.org/alice/lib\n",
+            "a.j2": "[x]: https://codeberg.org/alice/{{ name }}\n",
+            "b.txt": "nothing\n",
+        }
+        new_texts, changed, left = f2g.plan_file_links(files, src, "bob/proj")
+        self.assertEqual(list(new_texts), ["README.md"])
+        self.assertEqual(changed, [("README.md", 1, "https://codeberg.org/alice/proj.git", "https://github.com/bob/proj.git")])
+        self.assertEqual(
+            left, [("README.md", 2, "https://codeberg.org/alice/lib"), ("a.j2", 1, "https://codeberg.org/alice/{{")]
+        )
+        self.assertEqual(f2g.url_repo("git@codeberg.org:alice/lib.git", src), "alice/lib")
+        self.assertIsNone(f2g.url_repo("https://codeberg.org/alice", src))
+
+    def test_website_target(self):
+        self.assertEqual(f2g.website_target("https://github.com/lingfra/aar-doc-config"), "lingfra/aar-doc-config")
+        self.assertEqual(f2g.website_target("https://github.com/a/b.git/"), "a/b")
+        for website in ("", None, "https://galaxy.ansible.com/lingfra/podman", "https://github.com/a"):
+            self.assertIsNone(f2g.website_target(website), website)
 
     def test_neutralize_mentions(self):
         text = "\n".join(["thanks @carol and @d.e-f.", "mail a@b.org", "`@code` stays", "```", "@fenced", "```"])
@@ -124,6 +179,42 @@ class Live(unittest.TestCase):
         self.assertEqual(len(plan), len(expected["issues"]))
         for got, want in zip(plan, expected["issues"]):
             self.assertEqual(got, want, f"#{want['number']}")
+
+    def test_milestones_and_releases(self):
+        src = f2g.Source(EXTRAS)
+        self.assertEqual(
+            f2g.plan_milestones(src, EXTRAS_GITHUB),
+            [{"title": "0.2", "description": "", "state": "open", "due_on": None, "issues": [6]}],
+        )
+        releases = f2g.plan_releases(src, EXTRAS_GITHUB)
+        self.assertEqual(len(releases), 1)
+        r = releases[0]
+        self.assertEqual(
+            {k: r[k] for k in ("tag", "name", "draft", "prerelease", "published", "assets")},
+            {"tag": "v0.1.0", "name": "v0.1.0 Proof of concept", "draft": False, "prerelease": True,
+             "published": "2025-02-02", "assets": []},
+        )
+        self.assertTrue(r["body"].startswith("This version initializes the collection"))
+        self.assertNotIn("\r", r["body"])
+
+    def test_link_exists(self):
+        src = f2g.Source(EXTRAS)
+        cases = {
+            "/src/branch/main/roles/podman_construct#x": True,
+            "/src/branch/poc/roles/podman_construct": False,  # branch deleted before the migration
+            "/src/branch/main/missing.md": False,
+            "/src/tag/v0.1.0/README.md": True,
+            "/src/commit/0f67234/galaxy.yml": True,
+            "/commit/0f67234": True,
+            "/issues/3": True,
+            "/issues/99": False,
+            "/pulls/2": True,
+            "/releases/tag/v0.1.0": True,
+            "/releases/tag/v9.9.9": False,
+            "/compare/v0.1.0..HEAD": None,
+        }
+        for path, want in cases.items():
+            self.assertIs(src.link_exists(EXTRAS + path), want, path)
 
 
 if __name__ == "__main__":

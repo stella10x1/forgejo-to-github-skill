@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Move a Forgejo (e.g. Codeberg) repository's metadata, labels and issues to GitHub.
+"""Move a Forgejo (e.g. Codeberg) repository's metadata, issues, milestones, releases and links to GitHub.
 
 Subcommands (every write is a dry run unless --apply is given):
   inspect      show the source repository, the Forgejo version and the GitHub target
   create-repo  create the GitHub repository with the source description and topics
   issues       copy labels, then issues and pull requests (as issues) in number order
+  milestones   copy milestones and assign them to the migrated issues (after issues)
+  releases     copy release names, notes and flags onto the pushed tags
+  links        point links to the repository in its own files (a worktree) at GitHub
   verify       check the manual follow-up steps on the Forgejo side
 
 Uses only the Python standard library and the gh CLI. Set FORGEJO_TOKEN for
@@ -17,6 +20,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -50,8 +54,16 @@ class Source:
         headers = {"Accept": "application/json"}
         if self.token:
             headers["Authorization"] = f"token {self.token}"
-        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
-            return json.load(r)
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
+                    return json.load(r)
+            except urllib.error.HTTPError as e:
+                # Codeberg sometimes answers 502/503/504 under load.
+                if e.code < 500 or attempt == 2:
+                    raise
+                time.sleep(10 * (attempt + 1))
+        raise AssertionError("unreachable")
 
     def paged(self, path, **params):
         # Stops on the first page without new ids, so endpoints that ignore
@@ -70,6 +82,48 @@ class Source:
 
     def version(self):
         return self.api("version")["version"]
+
+    def is_org(self):
+        return self.found(f"orgs/{self.owner}")
+
+    def found(self, path, params=None):
+        try:
+            self.api(path, params)
+            return True
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                e.close()
+                return False
+            raise
+
+    def link_exists(self, url):
+        """Whether a web link into this repository resolves, checked through the API, or None if it can't tell.
+
+        The web UI can't be asked directly: Codeberg answers unknown clients with
+        a bot-check page and status 200, even for missing pages.
+        """
+        m = re.match(rf"^https?://{re.escape(self.host)}/{re.escape(self.full)}/(.+?)/?(?:[#?].*)?$", url)
+        if not m:
+            return None
+        rest = urllib.parse.unquote(m[1])
+        r = f"repos/{self.full}"
+        if mm := re.match(r"^(issues|pulls)/(\d+)$", rest):
+            return self.found(f"{r}/issues/{mm[2]}")
+        if mm := re.match(r"^commit/([0-9a-f]{7,40})$", rest):
+            return self.found(f"{r}/git/commits/{mm[1]}")
+        if mm := re.match(r"^releases/tag/(.+)$", rest):
+            return self.found(f"{r}/releases/tags/{urllib.parse.quote(mm[1], safe='')}")
+        if mm := re.match(r"^(?:src|raw)/(branch|tag|commit)/(.+)$", rest):
+            kind, parts = mm[1], mm[2].split("/")
+            # Branch and tag names may contain slashes: try the shortest existing ref first, like Forgejo does.
+            for i in range(1, len(parts) + 1):
+                ref, path = "/".join(parts[:i]), "/".join(parts[i:])
+                if kind == "commit" or self.found(f"{r}/{'branches' if kind == 'branch' else 'tags'}/{urllib.parse.quote(ref, safe='')}"):
+                    if not path:
+                        return kind != "commit" or self.found(f"{r}/git/commits/{ref}")
+                    return self.found(f"{r}/contents/{urllib.parse.quote(path)}", {"ref": ref})
+            return False
+        return None
 
 
 def gh(args, payload=None, retries=5) -> str:
@@ -103,7 +157,23 @@ def gh_repo_exists(gh_repo):
 
 
 def default_target(src):
-    return f"{gh(['api', 'user', '--jq', '.login']).strip()}/{src.repo}"
+    """The same-name GitHub org if the source belongs to an org and you may create repositories there, else your account."""
+    if src.is_org():
+        p = subprocess.run(["gh", "api", f"user/memberships/orgs/{src.owner}"], capture_output=True, text=True)
+        if p.returncode == 0:
+            m = json.loads(p.stdout)
+            can_create = m.get("role") == "admin" or gh(
+                ["api", f"orgs/{src.owner}", "--jq", ".members_can_create_repositories"]
+            ).strip() == "true"
+            if m.get("state") == "active" and can_create:
+                return f"{src.owner}/{src.repo}", f"same-name GitHub org, you are {m['role']} there"
+    return f"{gh(['api', 'user', '--jq', '.login']).strip()}/{src.repo}", "your gh account"
+
+
+def website_target(website):
+    """OWNER/NAME if the website field points at a GitHub repository (as it does after the move)."""
+    m = re.match(r"^https://github\.com/([\w.-]+/[\w.-]+?)(?:\.git)?/?$", website or "")
+    return m[1] if m else None
 
 
 def date(ts):
@@ -125,6 +195,60 @@ def rewrite_links(text, src, gh_repo, old_owners=()):
     for o in old_owners:
         text = re.sub(rf"(https?://{host}/){re.escape(o)}/", rf"\g<1>{src.owner}/", text)
     return text
+
+
+# Where a URL ends in prose, Markdown, YAML or a .gitmodules file.
+URL_END = r"(?=\s|[)\]>\"'`,;]|\.(?!\w)|\Z)"
+# Paths under the repository that GitHub serves the same way. Others (wiki, archive, ...) stay for review.
+SAME_PATHS = r"issues|pulls|commit|compare|releases|tags|branches"
+
+
+def rewrite_file_links(text, src, gh_repo, old_owners=()):
+    """Point links to the source repository in its own files at GitHub.
+
+    Unlike rewrite_links (for issue texts), relative links stay as they are: in
+    the repository's files they point into the repository itself.
+    """
+    host, repo = re.escape(src.host), re.escape(src.repo)
+    owners = "|".join(re.escape(o) for o in (src.owner, *old_owners))
+    gh_url = f"https://github.com/{gh_repo}"
+    text = re.sub(rf"git@{host}:(?:{owners})/{repo}\.git{URL_END}", f"git@github.com:{gh_repo}.git", text)
+    text = re.sub(rf"ssh://git@{host}(?::\d+)?/(?:{owners})/{repo}\.git{URL_END}", f"ssh://git@github.com/{gh_repo}.git", text)
+    base = rf"https?://{host}/(?:{owners})/{repo}"
+    text = re.sub(base + r"/src/(?:branch|tag|commit)/", gh_url + "/tree/", text)
+    text = re.sub(base + r"/raw/(?:branch|tag|commit)/", gh_url + "/raw/", text)
+    text = re.sub(base + r"/pulls/(\d+)", gh_url + r"/issues/\1", text)  # pull requests became issues
+    text = re.sub(base + rf"(?=(?:\.git|/)?{URL_END}|/(?:{SAME_PATHS})(?![\w-]))", gh_url, text)
+    for o in old_owners:
+        text = re.sub(rf"(https?://{host}/){re.escape(o)}/", rf"\g<1>{src.owner}/", text)
+    return text
+
+
+def instance_urls(text, src):
+    pattern = rf"(?:https?://|ssh://git@|git@){re.escape(src.host)}(?::\d+)?[:/][^\s)\]>\"'`]+"
+    return [u.rstrip(".,;:") for u in re.findall(pattern, text)]
+
+
+def url_repo(url, src):
+    """OWNER/NAME of a URL on the instance, or None for instance pages like /user/login."""
+    m = re.match(rf"^(?:https?://|ssh://git@|git@){re.escape(src.host)}(?::\d+)?[:/]([^/]+)/([^/#?]+?)(?:\.git)?(?:[/#?]|$)", url)
+    return f"{m[1]}/{m[2]}" if m else None
+
+
+def plan_file_links(files, src, gh_repo, old_owners=()):
+    """For {path: text}: the rewritten texts, each rewritten URL, and the instance URLs left alone."""
+    new_texts, changed, left = {}, [], []
+    for path, text in sorted(files.items()):
+        new = rewrite_file_links(text, src, gh_repo, old_owners)
+        if new != text:
+            new_texts[path] = new
+        for n, (old_line, new_line) in enumerate(zip(text.split("\n"), new.split("\n")), 1):
+            for url in instance_urls(old_line, src):
+                rewritten = rewrite_file_links(url, src, gh_repo, old_owners)
+                if rewritten != url:
+                    changed.append((path, n, url, rewritten))
+            left += [(path, n, url) for url in instance_urls(new_line, src)]
+    return new_texts, changed, left
 
 
 def neutralize_mentions(text):
@@ -207,7 +331,7 @@ def plan_issues(src, gh_repo, old_owners=()):
             kind, reason = "issue", "completed" if it["state"] == "closed" else None
             header = f"> Migrated from {src.forge} issue [{src.full}#{n}]({src.web}/issues/{n}){opened}."
         if it.get("milestone"):
-            notes.append(f"milestone {it['milestone']['title']!r} is not migrated")
+            notes.append(f"milestone {it['milestone']['title']!r} is assigned by the milestones subcommand")
         body = it["body"] or ""
         comments = [
             f"> Comment migrated from [{src.forge}]({c['html_url']}), posted{by(src, c['user'])} on {date(c['created_at'])}."
@@ -230,6 +354,45 @@ def plan_issues(src, gh_repo, old_owners=()):
     return issues, plan
 
 
+def plan_milestones(src, gh_repo, old_owners=()):
+    if not src.api(f"repos/{src.full}").get("has_issues", True):
+        return []
+    issues = src.paged(f"repos/{src.full}/issues", state="all")
+    plan = []
+    for m in sorted(src.paged(f"repos/{src.full}/milestones", state="all"), key=lambda m: m["id"]):
+        plan.append(
+            {
+                "title": m["title"],
+                "description": fix(m.get("description"), src, gh_repo, old_owners),
+                "state": m["state"],
+                # GitHub keeps only the day; noon UTC keeps it from shifting a day in any time zone.
+                "due_on": f"{date(m['due_on'])}T12:00:00Z" if m.get("due_on") else None,
+                "issues": sorted(i["number"] for i in issues if (i.get("milestone") or {}).get("id") == m["id"]),
+            }
+        )
+    return plan
+
+
+def plan_releases(src, gh_repo, old_owners=()):
+    # With the releases unit disabled, the endpoint answers 404 "The target couldn't be found."
+    if not src.api(f"repos/{src.full}").get("has_releases", True):
+        return []
+    plan = []
+    for r in sorted(src.paged(f"repos/{src.full}/releases"), key=lambda r: r["created_at"]):
+        plan.append(
+            {
+                "tag": r["tag_name"],
+                "name": r["name"] or r["tag_name"],
+                "body": fix((r["body"] or "").replace("\r\n", "\n"), src, gh_repo, old_owners),
+                "draft": r["draft"],
+                "prerelease": r["prerelease"],
+                "published": date(r["published_at"] or r["created_at"]),
+                "assets": [a["name"] for a in r.get("assets") or []],
+            }
+        )
+    return plan
+
+
 def remaining_links(plan, src):
     """Links into the Forgejo instance that survive the rewrite, for a human to check."""
     links = set()
@@ -245,7 +408,7 @@ def remaining_links(plan, src):
 def gh_existing_issues(gh_repo):
     out = gh(
         ["api", "--paginate", f"repos/{gh_repo}/issues?state=all&per_page=100", "--jq",
-         ".[] | {number, title, comments, state, pr: (.pull_request != null)}"]
+         ".[] | {number, title, comments, state, pr: (.pull_request != null), milestone: .milestone.title}"]
     )
     return {i["number"]: i for i in map(json.loads, out.splitlines())}
 
@@ -260,10 +423,15 @@ def cmd_inspect(args, src, gh_repo):
         print("                 matches the tested version")
     else:
         print(f"                 CHANGED: tested with {TESTED_FORGEJO_VERSION}; run the test suite before migrating")
-    for key in ("description", "website", "private", "archived", "default_branch", "has_issues", "has_wiki", "mirror"):
+    for key in ("description", "website", "private", "archived", "default_branch", "has_issues", "has_wiki", "has_releases", "mirror"):
         print(f"{key + ':':<17}{meta.get(key)!r}")
     print(f"{'topics:':<17}{topics}")
-    print(f"github target:   https://github.com/{gh_repo} ({'EXISTS' if gh_repo_exists(gh_repo) else 'does not exist yet'})")
+    milestones = src.paged(f"repos/{src.full}/milestones", state="all") if meta.get("has_issues", True) else []
+    releases = src.paged(f"repos/{src.full}/releases") if meta.get("has_releases", True) else []
+    print(f"{'milestones:':<17}{len(milestones)}")
+    print(f"{'releases:':<17}{len(releases)}")
+    exists = "EXISTS" if gh_repo_exists(gh_repo) else "does not exist yet"
+    print(f"github target:   https://github.com/{gh_repo} ({exists}{'; ' + args.target_reason if args.target_reason else ''})")
     if meta.get("description") == MOVED_DESCRIPTION:
         print("note: the description already is the moved notice; pass --description to create-repo")
     if meta.get("archived"):
@@ -356,6 +524,148 @@ def cmd_issues(args, src, gh_repo):
         print(f"#{n} done")
 
 
+def cmd_milestones(args, src, gh_repo):
+    plan = plan_milestones(src, gh_repo, args.old_owner)
+    for m in plan:
+        due = f" due {m['due_on'][:10]}" if m["due_on"] else ""
+        print(f"milestone: {m['title']!r} [{m['state']}]{due} issues={['#%d' % n for n in m['issues']]}")
+    if not plan:
+        print("no milestones")
+        return
+    if not args.apply:
+        print("\nDry run only. Re-run with --apply (after issues --apply) to create these on GitHub.")
+        return
+
+    # Re-running resumes: milestones are matched by title, assignments are only changed where they differ.
+    existing = gh_existing_issues(gh_repo)
+    missing = sorted({n for m in plan for n in m["issues"]} - existing.keys())
+    if missing:
+        sys.exit(f"issues {missing} aren't on GitHub yet; run issues --apply first")
+    out = gh(["api", "--paginate", f"repos/{gh_repo}/milestones?state=all&per_page=100", "--jq", ".[] | {title, number}"])
+    numbers = {m["title"]: m["number"] for m in map(json.loads, out.splitlines())}
+    for m in plan:
+        if m["title"] not in numbers:
+            payload = {"title": m["title"], "state": m["state"], "description": m["description"]}
+            if m["due_on"]:
+                payload["due_on"] = m["due_on"]
+            created = gh_api(f"repos/{gh_repo}/milestones", "POST", payload)
+            assert created is not None
+            numbers[m["title"]] = created["number"]
+        for n in m["issues"]:
+            if existing[n]["milestone"] != m["title"]:
+                gh_api(f"repos/{gh_repo}/issues/{n}", "PATCH", {"milestone": numbers[m["title"]]})
+        print(f"milestone {m['title']!r} done")
+
+
+def gh_tag_exists(gh_repo, tag):
+    ref = urllib.parse.quote(tag, safe="")
+    return subprocess.run(["gh", "api", f"repos/{gh_repo}/git/ref/tags/{ref}"], capture_output=True).returncode == 0
+
+
+def cmd_releases(args, src, gh_repo):
+    plan = plan_releases(src, gh_repo, args.old_owner)
+    for r in plan:
+        flags = "".join(f" {f}" for f, on in (("draft", r["draft"]), ("pre-release", r["prerelease"])) if on)
+        print(f"release: {r['tag']} {r['name']!r}{flags}, published {r['published']}")
+        if r["assets"]:
+            print(f"    note: {len(r['assets'])} assets aren't migrated ({', '.join(r['assets'])}): {src.web}/releases/tag/{r['tag']}")
+    if not plan:
+        print("no releases" + ("" if src.api(f"repos/{src.full}").get("has_releases", True) else " (releases are disabled)"))
+        return
+    print("note: GitHub dates the releases on creation; the original dates aren't kept")
+    if not args.apply:
+        print("\nDry run only. Re-run with --apply (after pushing the tags) to create these on GitHub.")
+        return
+
+    # Re-running resumes: releases already on GitHub (by tag) are skipped. Oldest first, so the newest stays "latest".
+    out = gh(["api", "--paginate", f"repos/{gh_repo}/releases?per_page=100", "--jq", ".[].tag_name"])
+    existing = set(out.split())
+    for r in plan:
+        if r["tag"] in existing:
+            print(f"{r['tag']}: already on GitHub")
+            continue
+        if not gh_tag_exists(gh_repo, r["tag"]):
+            if r["draft"]:
+                print(f"{r['tag']}: draft without a tag on GitHub, skipped")
+                continue
+            sys.exit(f"tag {r['tag']} isn't on GitHub; push the tags first")
+        gh_api(
+            f"repos/{gh_repo}/releases",
+            "POST",
+            {
+                "tag_name": r["tag"],
+                "name": r["name"],
+                "body": r["body"],
+                "draft": r["draft"],
+                "prerelease": r["prerelease"],
+                "make_latest": "false" if r["draft"] or r["prerelease"] else "true",
+            },
+        )
+        print(f"{r['tag']} done")
+
+
+def read_worktree(path):
+    """{path: text} of the tracked text files in a git worktree (submodules and binary files skipped)."""
+    out = subprocess.run(["git", "-C", path, "ls-files", "-z"], capture_output=True, text=True, check=True).stdout
+    files = {}
+    for name in filter(None, out.split("\0")):
+        full = os.path.join(path, name)
+        if not os.path.isfile(full) or os.path.islink(full):
+            continue
+        try:
+            with open(full, encoding="utf-8", newline="") as f:
+                text = f.read()
+        except UnicodeDecodeError:
+            continue
+        if "\0" not in text:
+            files[name] = text
+    return files
+
+
+def cmd_links(args, src, gh_repo):
+    new_texts, changed, left = plan_file_links(read_worktree(args.dir), src, gh_repo, args.old_owner)
+    for path, n, old, new in changed:
+        print(f"{path}:{n}: {old} -> {new}")
+    if not changed:
+        print(f"no links to {src.full} in the files")
+    dead = sorted({old for _, _, old, _ in changed if src.link_exists(old) is False})
+    if dead:
+        print(f"\nalready dead on {src.forge} (rewritten too, but fix them by hand):")
+        for url in dead:
+            print(f"  {url}")
+    groups = {}
+    for path, n, url in left:
+        if re.search(r"\{\{|\{%|\$\{", url):
+            key = "(generated)"
+        else:
+            key = url_repo(url, src) or "(accounts and other pages)"
+        groups.setdefault(key, []).append(f"{path}:{n} {url}")
+    if groups:
+        print(f"\nlinks to {src.host} left as they are:")
+        for repo, where in sorted(groups.items()):
+            if repo == "(generated)":
+                kind = "template code builds these; other repositories' output may depend on it"
+            elif repo == "(accounts and other pages)":
+                kind = "not a repository"
+            elif repo == src.full:
+                kind = "this repository, a path without a GitHub counterpart"
+            elif repo.split("/")[0] in (src.owner, *args.old_owner):
+                kind = "same owner: candidate for a follow-up migration"
+            else:
+                kind = "other owner"
+            print(f"  {repo} ({kind})")
+            for w in where:
+                print(f"    {w}")
+    if not args.apply:
+        if new_texts:
+            print(f"\nDry run only. Re-run with --apply to rewrite {len(new_texts)} file(s).")
+        return
+    for path, text in new_texts.items():
+        with open(os.path.join(args.dir, path), "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+    print(f"rewrote {len(new_texts)} file(s); review them with git diff")
+
+
 def cmd_verify(args, src, gh_repo):
     meta = src.api(f"repos/{src.full}")
     gh_url = f"https://github.com/{gh_repo}"
@@ -382,22 +692,47 @@ def cmd_verify(args, src, gh_repo):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("inspect", "create-repo", "issues", "verify"):
+    commands = {
+        "inspect": cmd_inspect,
+        "create-repo": cmd_create_repo,
+        "issues": cmd_issues,
+        "milestones": cmd_milestones,
+        "releases": cmd_releases,
+        "links": cmd_links,
+        "verify": cmd_verify,
+    }
+    for name in commands:
         s = sub.add_parser(name)
         s.add_argument("url", help="repository URL on the Forgejo instance (web, HTTPS or SSH)")
-        s.add_argument("--github", metavar="OWNER/NAME", help="target repository (default: your gh account, same name)")
-        if name in ("create-repo", "issues"):
-            s.add_argument("--apply", action="store_true", help="write to GitHub (default: dry run)")
+        s.add_argument(
+            "--github",
+            metavar="OWNER/NAME",
+            help="target repository (default: the same-name GitHub org if you may create repositories there, "
+            "else your gh account; for verify: the source's website field if it points at GitHub)",
+        )
+        if name in ("create-repo", "issues", "milestones", "releases", "links"):
+            s.add_argument("--apply", action="store_true", help="write (default: dry run)")
         if name == "create-repo":
             s.add_argument("--description", help="use this instead of the source description")
-        if name == "issues":
+        if name in ("issues", "milestones", "releases", "links"):
             s.add_argument("--old-owner", action="append", default=[], metavar="NAME",
                            help="former name of the owner account; links using it are rewritten (repeatable)")
+        if name == "issues":
             s.add_argument("--dump-plan", metavar="FILE", help="write the full plan as JSON for review")
+        if name == "links":
+            s.add_argument("--dir", required=True, help="git worktree of the repository whose files to rewrite")
     args = p.parse_args(argv)
     src = Source(args.url, os.environ.get("FORGEJO_TOKEN"))
-    gh_repo = args.github or default_target(src)
-    {"inspect": cmd_inspect, "create-repo": cmd_create_repo, "issues": cmd_issues, "verify": cmd_verify}[args.cmd](args, src, gh_repo)
+    from_website = website_target(src.api(f"repos/{src.full}").get("website")) if args.cmd == "verify" else None
+    if args.github:
+        gh_repo, args.target_reason = args.github, None
+    elif from_website:
+        gh_repo, args.target_reason = from_website, "from the website field"
+    else:
+        gh_repo, args.target_reason = default_target(src)
+    if args.target_reason and args.cmd != "inspect":
+        print(f"github target: {gh_repo} ({args.target_reason})", file=sys.stderr)
+    commands[args.cmd](args, src, gh_repo)
 
 
 if __name__ == "__main__":
