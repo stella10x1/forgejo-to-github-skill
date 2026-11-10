@@ -24,9 +24,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-# Forgejo version this script was written and tested against (codeberg.org, 2026-11-07).
+# Forgejo version the test suite last passed against (codeberg.org, 2026-11-10; written against
+# 17.0.0-93-4d598f4+gitea-1.22.0 on 2026-11-07).
 # Keep in sync with SKILL.md; the test suite checks that.
-TESTED_FORGEJO_VERSION = "17.0.0-93-4d598f4+gitea-1.22.0"
+TESTED_FORGEJO_VERSION = "17.0.0-99-322c239+gitea-1.22.0"
 MOVED_DESCRIPTION = "*** Moved to GitHub due to LLM restrictions ***"
 PAGE = 50
 

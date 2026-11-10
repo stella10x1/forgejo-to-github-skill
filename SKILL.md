@@ -11,8 +11,8 @@ to github.com/lingfra (November 2026). The script does the API work. You do
 the git work and the README note, and the user does the Forgejo web UI steps
 at the end, since Forgejo has no CLI.
 
-**Tested with Forgejo `17.0.0-93-4d598f4+gitea-1.22.0`** (codeberg.org,
-2026-11-07). The same version is `TESTED_FORGEJO_VERSION` in the script.
+**Tested with Forgejo `17.0.0-99-322c239+gitea-1.22.0`** (codeberg.org,
+2026-11-10). The same version is `TESTED_FORGEJO_VERSION` in the script.
 
 Files:
 - `scripts/forgejo2github.py`: `inspect`, `create-repo`, `issues`,
