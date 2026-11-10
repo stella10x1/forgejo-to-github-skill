@@ -414,6 +414,18 @@ def gh_existing_issues(gh_repo):
     return {i["number"]: i for i in map(json.loads, out.splitlines())}
 
 
+def split_moved_description(description):
+    """Whether the description starts with the moved notice, and the description without it.
+
+    The notice may stand alone or in front of the original description. Leading
+    whitespace (easily typed in the web form) is ignored.
+    """
+    description = (description or "").lstrip()
+    if description.startswith(MOVED_DESCRIPTION):
+        return True, description[len(MOVED_DESCRIPTION):].strip()
+    return False, description
+
+
 def cmd_inspect(args, src, gh_repo):
     version = src.version()
     meta = src.api(f"repos/{src.full}")
@@ -433,8 +445,11 @@ def cmd_inspect(args, src, gh_repo):
     print(f"{'releases:':<17}{len(releases)}")
     exists = "EXISTS" if gh_repo_exists(gh_repo) else "does not exist yet"
     print(f"github target:   https://github.com/{gh_repo} ({exists}{'; ' + args.target_reason if args.target_reason else ''})")
-    if meta.get("description") == MOVED_DESCRIPTION:
-        print("note: the description already is the moved notice; pass --description to create-repo")
+    moved, original = split_moved_description(meta.get("description"))
+    if moved and original:
+        print(f"note: the description starts with the moved notice; create-repo uses the rest: {original!r}")
+    elif moved:
+        print("note: the description is only the moved notice; pass --description to create-repo")
     if meta.get("archived"):
         print("note: the repository is archived, so the notice branch can't be pushed until it is unarchived")
 
@@ -446,9 +461,12 @@ def sanitize_topic(t):
 def cmd_create_repo(args, src, gh_repo):
     meta = src.api(f"repos/{src.full}")
     topics = src.api(f"repos/{src.full}/topics", {"limit": PAGE})["topics"]
-    description = args.description if args.description is not None else (meta.get("description") or "")
-    if args.description is None and description == MOVED_DESCRIPTION:
-        sys.exit("the source description is already the moved notice; pass --description with the real one")
+    if args.description is not None:
+        description = args.description
+    else:
+        moved, description = split_moved_description(meta.get("description"))
+        if moved and not description:
+            sys.exit("the source description is only the moved notice; pass --description with the real one")
     description = " ".join(description.split())[:350]
     gh_topics = [t for t in dict.fromkeys(map(sanitize_topic, topics)) if t]
     create = ["repo", "create", gh_repo, "--private" if meta["private"] else "--public"]
@@ -678,7 +696,7 @@ def cmd_verify(args, src, gh_repo):
     ff = p.returncode == 0 and p.stdout.strip() in ("ahead", "identical")
     checks = [
         (f"{src.forge} {meta['default_branch']} ({head[:7]}) is in GitHub's {gh_default} history (fast-forward possible)", ff),
-        (f"description is {MOVED_DESCRIPTION!r}", meta.get("description") == MOVED_DESCRIPTION),
+        (f"description starts with {MOVED_DESCRIPTION!r}", split_moved_description(meta.get("description"))[0]),
         (f"website is {gh_url}", (meta.get("website") or "").rstrip("/") == gh_url),
         ("repository is archived", bool(meta.get("archived"))),
     ]

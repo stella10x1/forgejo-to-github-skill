@@ -68,9 +68,10 @@ python3 -I "$S" inspect <url> [--github OWNER/NAME]
   instead of reusing the repo.
 - **Archived source:** the notice branch can't be pushed. Ask the user to
   unarchive it first, or skip the Forgejo side of the note.
-- **Description already the moved notice:** pass the real one with
-  `create-repo --description`. Ask the user for it, or take it from the
-  README.
+- **Description already starts with the moved notice:** `create-repo`
+  uses the rest after it. If the notice is all there is, pass the real
+  description with `create-repo --description`. Ask the user for it, or take
+  it from the README.
 - Push access to Forgejo over SSH: `git ls-remote <ssh-url>`.
 
 ## Phase 1: Dry runs
@@ -247,8 +248,10 @@ Then give this list, filled in:
 >    "Rebase": that recreates the commit with a new hash, and Forgejo can't
 >    be fast-forwarded to GitHub later. Then delete the branch. I can do
 >    the push and the branch deletion for you once you've reviewed it.
-> 1. Settings → Repository → Description:
->    `*** Moved to GitHub due to LLM restrictions ***`
+> 1. Settings → Repository → Description: put
+>    `*** Moved to GitHub due to LLM restrictions ***` in front of the
+>    current description, e.g.
+>    `*** Moved to GitHub due to LLM restrictions *** <description>`
 > 2. Settings → Repository → Website: `https://github.com/OWNER/NAME`
 > 3. Settings → Danger Zone → Archive this repository.
 >
@@ -264,6 +267,10 @@ Without `--github`, `verify` takes the target from the website field once it
 points at GitHub (step 2). Before that, it falls back to the default target,
 which may be wrong. Always fill in `--github` in the todo list.
 
+The user prefers keeping the original description after the notice, so it
+stays readable (as on lingfra/aar-doc-config and the deSEC, libvirt and borg
+collections). The notice alone passes too: `verify` only checks that the
+description starts with that exact text (leading whitespace is ignored).
+
 For a non-Codeberg instance, ask the user whether the description text fits
-(the LLM restrictions are Codeberg's). `verify` compares against that exact
-text.
+(the LLM restrictions are Codeberg's).

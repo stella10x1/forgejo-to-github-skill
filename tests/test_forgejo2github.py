@@ -107,6 +107,15 @@ class Offline(unittest.TestCase):
         self.assertEqual(f2g.url_repo("git@codeberg.org:alice/lib.git", src), "alice/lib")
         self.assertIsNone(f2g.url_repo("https://codeberg.org/alice", src))
 
+    def test_split_moved_description(self):
+        moved = f2g.MOVED_DESCRIPTION
+        self.assertEqual(f2g.split_moved_description(moved), (True, ""))
+        self.assertEqual(f2g.split_moved_description(f"{moved} Install libvirt."), (True, "Install libvirt."))
+        self.assertEqual(f2g.split_moved_description("Install libvirt."), (False, "Install libvirt."))
+        self.assertEqual(f2g.split_moved_description(f"Install libvirt. {moved}"), (False, f"Install libvirt. {moved}"))
+        self.assertEqual(f2g.split_moved_description(None), (False, ""))
+        self.assertEqual(f2g.split_moved_description(f" {moved} Templates."), (True, "Templates."))
+
     def test_website_target(self):
         self.assertEqual(f2g.website_target("https://github.com/lingfra/aar-doc-config"), "lingfra/aar-doc-config")
         self.assertEqual(f2g.website_target("https://github.com/a/b.git/"), "a/b")
